@@ -166,7 +166,7 @@ def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module, devic
     
     # --- NEW: Add the Decision Boundary Line ---
     # levels=[0.5] draws a line exactly where the probability is 0.5
-    plt.contour(X, Y, Z, levels=[0.5], colors='black', linewidths=2)
+    plt.contour(X, Y, Z, levels=[0.0], colors='black', linewidths=2)
     
     # Draw the scattered data points
     # Using labels[:, 0] specifically to handle the shape from make_spiral
