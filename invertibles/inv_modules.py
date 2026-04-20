@@ -5,7 +5,7 @@ import numpy as np
 
 from typing import Tuple, Optional
 
-from InvertibleModules.utils import *
+from invertibles.utils import *
 
 
 class LUBlock(torch.nn.Module):

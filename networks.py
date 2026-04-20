@@ -1,4 +1,4 @@
-from InvertibleModules.inv_modules import *
+from invertibles.inv_modules import *
 
 from typing import Tuple, List, Callable
 import torch
