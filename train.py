@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable
 
 from sklearn.metrics import classification_report
 
@@ -14,7 +14,7 @@ def train(
     model: nn.Module,
     train_loader: DataLoader,
     optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler.LRScheduler | torch.optim.lr_scheduler.ReduceLROnPlateau,
+    scheduler: Any, # torch.optim.lr_scheduler.LRScheduler | torch.optim.lr_scheduler.ReduceLROnPlateau,
     criterion: nn.Module | Callable = nn.CrossEntropyLoss(),
     device: torch.device = torch.device('cpu'),
 ):
@@ -41,7 +41,6 @@ def train(
               end= '\n' if epoch % (20 if max_epochs<=100 else (100 if max_epochs<=500 else 500)) == 0 else '\r')
 
     return model
-
 
 @torch.no_grad()
 def test(
@@ -82,6 +81,31 @@ def test(
 
     return accuracy
 
+@torch.no_grad()
+def invertibility_check(model: InvertibleMLP, 
+                        test_loader: DataLoader, 
+                        device: torch.device = torch.device('cpu')) -> None:
+    model.eval()
+    clamped_model = model.net[:-1]
+    clamped_model.eval()
+
+    mean_error = 0.0
+    max_error = torch.tensor(0.0)
+    total = 0
+    for x, y in test_loader:
+        x, y = x.to(device), y.to(device).float()
+        output = clamped_model(x)
+
+        x_tilde = model.inverse(output)
+        mean_error += torch.sum((x-x_tilde)**2)
+        max_error = max(max_error, torch.amax(torch.sum((x-x_tilde)**2, 1)))
+        total += y.size(0)
+    mean_error = mean_error/total
+    print(f'Mean squared error on reconstruction: {mean_error:3.4f}')
+    print(f'Max squared error on reconstruction: {max_error:3.4f}')
+        
+
+
 def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4, 
                  lr: float = 0.015625, batch_size: int = 128):
     xy, labels = make_spiral(1024, noise=0.2, turns=1.5)
@@ -92,6 +116,7 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
     train_loader = DataLoader(spiral_train, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(spiral_test, batch_size=4096, shuffle=False)
     mlp = InvertibleMLP(2, 2, hidden_width=width, hidden_depth=depth, non_linearity='leaky_relu', negative_slope=0.1)
+    # mlp = InvertibleMLP(2, 2, hidden_width=width, hidden_depth=depth, non_linearity='tanh')
     optimizer = torch.optim.Adam(mlp.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
                                                            factor=0.75, 
@@ -108,8 +133,10 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
         scheduler=scheduler,
         criterion=nn.CrossEntropyLoss()
     )
-    mlp.inverse(torch.tensor([[0,0.5,0,0.5,0.1],[0.5,0.1,0.5,0,0.5]]))
+    # mlp.inverse(torch.tensor([[0,0.5,0,0.5,0.1],[0.5,0.1,0.5,0,0.5]]))
     test(mlp, test_loader)
+    invertibility_check(mlp, test_loader)
+
     return mlp
 
 @torch.no_grad()
