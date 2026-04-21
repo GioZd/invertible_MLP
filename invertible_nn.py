@@ -15,7 +15,8 @@ class InvertibleMLP(nn.Module):
         'tanh': I_Tanh,
         'cubic': I_Cubic,
         'arctan': I_Arctan,
-        'leaky_relu': I_LeakyReLU
+        'leaky_relu': I_LeakyReLU,
+        'softplus': I_SoftPlus
     }
 
     def __init__(

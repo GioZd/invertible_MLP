@@ -4,6 +4,7 @@ from sklearn.metrics import classification_report
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from invertible_nn import InvertibleMLP
@@ -107,7 +108,7 @@ def invertibility_check(model: InvertibleMLP,
 
 
 def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4, 
-                 lr: float = 0.015625, batch_size: int = 128):
+                 lr: float = 0.015625, batch_size: int = 128, activation='softplus', **kwargs):
     xy, labels = make_spiral(1024, noise=0.2, turns=1.5)
     # xy, labels = make_rings(1024, noise=0.1, n_rings=4, base_radius=2.5)
     # spiral = TensorDataset(xy, labels[:,0])
@@ -115,7 +116,7 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
     spiral_train, spiral_test = random_split(spiral, [0.8, 0.2], torch.Generator().manual_seed(42))
     train_loader = DataLoader(spiral_train, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(spiral_test, batch_size=4096, shuffle=False)
-    mlp = InvertibleMLP(2, 2, hidden_width=width, hidden_depth=depth, non_linearity='leaky_relu', negative_slope=0.1)
+    mlp = InvertibleMLP(2, 2, hidden_width=width, hidden_depth=depth, non_linearity=activation, **kwargs)
     # mlp = InvertibleMLP(2, 2, hidden_width=width, hidden_depth=depth, non_linearity='tanh')
     optimizer = torch.optim.Adam(mlp.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
@@ -153,9 +154,9 @@ def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module, devic
     
     # 2. Get predictions
     predictions = model(grid_points).squeeze().cpu()
-    
+    probs = F.softmax(predictions, dim=1)
     # 3. Reshape for plotting (Transpose to align with meshgrid/cartesian_prod)
-    Z = predictions[:,1].view(res, res).T.numpy()
+    Z = probs[:,1].view(res, res).T.numpy()
     X, Y = x_range.numpy(), y_range.numpy()
     
     plt.figure(figsize=(10, 8))
@@ -166,7 +167,7 @@ def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module, devic
     
     # --- NEW: Add the Decision Boundary Line ---
     # levels=[0.5] draws a line exactly where the probability is 0.5
-    plt.contour(X, Y, Z, levels=[0.0], colors='black', linewidths=2)
+    plt.contour(X, Y, Z, levels=[0.5], colors='black', linewidths=2)
     
     # Draw the scattered data points
     # Using labels[:, 0] specifically to handle the shape from make_spiral
@@ -185,5 +186,6 @@ if __name__ == '__main__':
     torch.manual_seed(7)
     xy, labels = make_spiral(1024, noise=0.2, turns=1.5)
     # xy, labels = make_rings(1024, noise=0.1, n_rings=3, base_radius=2.5)
-    model = train_spiral(epochs=401, width=5, depth=4, lr=0.005, batch_size=256)
+    # model = train_spiral(epochs=401, width=5, depth=4, lr=0.005, batch_size=256, activation='leaky_relu', negative_slope=0.1)
+    model = train_spiral(epochs=401, width=5, depth=4, lr=0.005, batch_size=256, activation='tanh')
     draw_model(xy, labels, model)
