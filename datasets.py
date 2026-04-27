@@ -9,6 +9,7 @@ def make_spiral(
     noise: float = 0.1,
     turns: float = 1.5,
     device: torch.device | str = "cpu",
+    seed: int = 42
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Generate a 2-D two-class spiral (the classic “two-spiral” toy problem).
@@ -26,6 +27,8 @@ def make_spiral(
     y: Tensor of shape (2*n_per_class, 2) - one-hot class labels (float).
 
     """
+    torch.manual_seed(seed)
+
     # Angles
     theta = torch.linspace(0, 2 * turns * torch.pi, n_per_class, device=device)
     r = 1.2*theta + 1.0
@@ -53,7 +56,7 @@ def make_spiral(
 
 def make_rings(n_per_class: int = 500, noise: float = 0.01, 
                n_rings: int = 2, base_radius: float = 2.0,
-               device: torch.device | str = "cpu"):
+               device: torch.device | str = "cpu", seed: int = 42):
     """
     Generate 2D points of 2 different class arranged in concentric rings.
 
@@ -70,6 +73,8 @@ def make_rings(n_per_class: int = 500, noise: float = 0.01,
     y: Tensor of shape (2*n_per_class, 2) - one-hot class labels (float).
 
     """
+    torch.manual_seed(seed)
+
     theta = torch.linspace(0, 2 * torch.pi, n_per_class, device=device)
     
     def get_radii(start_ring: int): # We want class 0 to take rings 1, 3, 5... and class 1 to take 2, 4, 6...

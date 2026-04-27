@@ -1,3 +1,6 @@
+import getopt
+import os
+import sys
 from typing import Any, Callable
 
 from sklearn.metrics import classification_report
@@ -11,6 +14,9 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from invertible_nn import InvertibleMLP
 from datasets import make_spiral, make_rings
 from timer import timer
+
+PATH = './models/'
+DATASETS = ['spiral', 'rings']
 
 @timer
 def train(
@@ -124,11 +130,21 @@ def invertibility_check(model: InvertibleMLP,
 
 
 def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4, 
-                 lr: float = 0.015625, batch_size: int = 128, activation='softplus', **kwargs):
-    xy, labels = make_spiral(1024, noise=0.2, turns=1.5)
-    # xy, labels = make_rings(1024, noise=0.1, n_rings=4, base_radius=2.5)
-    # spiral = TensorDataset(xy, labels[:,0])
+                 lr: float = 0.015625, batch_size: int = 128, 
+                 activation='softplus', folder: str | None = None, 
+                 seed: int = 42, **kwargs):
+    """Train, validation and visualization on the spiral toy dataset.
+    Set folder=PATH to save the trained model. Name is assigned automatically on the base
+    of the hyperparameters.
+    """
+    act = activation if isinstance(activation, str) else activation.__name__
+    if folder:
+        model_path = os.path.join(folder, f"spiral-w{width}d{depth}-{act}.pth")
+        losses_path = os.path.join(folder, f"spiral-w{width}d{depth}-{act}-loss.dat")
+
+    xy, labels = make_spiral(1024, noise=0.2, turns=1.5, seed=seed)
     spiral = TensorDataset(xy, labels)
+    torch.manual_seed(seed)
     spiral_train, spiral_test = random_split(spiral, [0.8, 0.2], 
                                              torch.Generator().manual_seed(42))
     train_loader = DataLoader(spiral_train, batch_size=batch_size, 
@@ -145,7 +161,7 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
                                                            threshold_mode='abs',
                                                            cooldown=20,
                                                            min_lr=5e-6)
-    mlp, loss, learning_rates = train(
+    mlp, losses, learning_rates = train(
         max_epochs=epochs, 
         model=mlp, 
         train_loader=train_loader, 
@@ -157,7 +173,63 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
     test(mlp, test_loader)
     invertibility_check(mlp, test_loader)
 
+    if folder:
+        torch.save(mlp.state_dict(), model_path)
+        torch.tensor(losses).numpy().tofile(losses_path, sep='\n')
+
     return mlp
+
+
+def train_rings(epochs: int = 100, width: int = 3, depth: int = 4, 
+                 lr: float = 0.015625, batch_size: int = 128, 
+                 activation='softplus', folder: str | None = None, 
+                 seed: int = 42, **kwargs):
+    """Train, validation and visualization on the rings toy dataset.
+    Set folder=PATH to save the trained model. Name is assigned automatically on the base
+    of the hyperparameters.
+    """
+    act = activation if isinstance(activation, str) else activation.__name__
+    if folder:
+        model_path = os.path.join(folder, f"rings-w{width}d{depth}-{act}.pth")
+        losses_path = os.path.join(folder, f"rings-w{width}d{depth}-{act}-loss.dat")
+
+    xy, labels = make_rings(1024, base_radius=3.0, noise=0.4, n_rings=3, seed=seed)
+    rings = TensorDataset(xy, labels)
+    torch.manual_seed(seed)
+    rings_train, rings_test = random_split(rings, [0.8, 0.2], 
+                                             torch.Generator().manual_seed(42))
+    train_loader = DataLoader(rings_train, batch_size=batch_size, 
+                              shuffle=True, num_workers=0)
+    test_loader = DataLoader(rings_test, batch_size=5, shuffle=False)
+    mlp = InvertibleMLP(2, 2, hidden_width=width, hidden_depth=depth, 
+                        non_linearity=activation, **kwargs)
+
+    optimizer = torch.optim.Adam(mlp.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+                                                           factor=0.75, 
+                                                           patience=10, 
+                                                           threshold=1e-4,
+                                                           threshold_mode='abs',
+                                                           cooldown=20,
+                                                           min_lr=5e-6)
+    mlp, losses, learning_rates = train(
+        max_epochs=epochs, 
+        model=mlp, 
+        train_loader=train_loader, 
+        optimizer=optimizer, 
+        scheduler=scheduler,
+        criterion=nn.CrossEntropyLoss()
+    )
+    # mlp.inverse(torch.tensor([[0,0.5,0,0.5,0.1],[0.5,0.1,0.5,0,0.5]]))
+    test(mlp, test_loader)
+    invertibility_check(mlp, test_loader)
+
+    if folder:
+        torch.save(mlp.state_dict(), model_path)
+        torch.tensor(losses).numpy().tofile(losses_path, sep='\n')
+
+    return mlp
+
 
 @torch.no_grad()
 def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module, 
@@ -183,7 +255,7 @@ def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module,
     
     # Draw the heatmap
     mesh = plt.pcolormesh(X, Y, Z, cmap='RdBu_r', alpha=0.6, shading='auto')
-    plt.colorbar(mesh, label='Logit for class 1')
+    plt.colorbar(mesh, label='Probability for class 1')
     
     # --- NEW: Add the Decision Boundary Line ---
     # levels=[0.5] draws a line exactly where the probability is 0.5
@@ -203,11 +275,61 @@ def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module,
     plt.show()
 
 if __name__ == '__main__':
-    torch.manual_seed(7)
-    xy, labels = make_spiral(1024, noise=0.2, turns=1.5)
-    # xy, labels = make_rings(1024, noise=0.1, n_rings=3, base_radius=2.5)
-    model = train_spiral(epochs=201, width=5, depth=4, lr=0.005, batch_size=256, 
-                         activation='leaky_relu', negative_slope=0.2)
-    # model = train_spiral(epochs=1001, width=5, depth=3, lr=0.005, 
-    #                      batch_size=256, activation='bilog')
-    draw_model(xy, labels, model)
+    args = sys.argv[1:]
+    options = "D:w:d:a:s:"
+    long_options = ["dataset=", "width=", "depth=", 
+                    "activation=", "kwargs=", "seed=",
+                    "no-plot"]
+    # defaults
+    dataset = 'spiral'
+    width = 5
+    depth = 4
+    activation = 'bilog'
+    kwargs = {}
+    seed = 7
+    plot = True
+    try:
+        arguments, values = getopt.getopt(args, options, long_options)
+        for currentArg, currentVal in arguments:
+            if currentArg in ("-D", "--dataset"):
+                dataset = currentVal.lower()
+            elif currentArg in ("-w", "--width"):
+                width = int(currentVal)
+            elif currentArg in ("-d", "--depth"):
+                depth = int(currentVal)
+            elif currentArg in ("-a", "--activation"):
+                activation = currentVal.lower()
+            elif currentArg in ("--kwargs",):
+                for kwval in currentVal.split(','):
+                    kw, val = kwval.split('=')
+                    kwargs[kw] = float(val)
+            elif currentArg in ("-s", "--seed"):
+                seed = int(currentVal)
+            elif currentArg in ("--no-plot",):
+                plot = False
+    except getopt.error as err:
+        raise getopt.GetoptError(str(err))
+    
+
+    if dataset == 'spiral':
+        print("Training `spiral`...")
+        xy, labels = make_spiral(1024, noise=0.2, turns=1.5, seed=seed)
+        model = train_spiral(epochs=1001, width=width, depth=depth, lr=0.005, 
+                             batch_size=128, activation=activation, folder=PATH, 
+                             seed=seed, **kwargs)  
+        print("...model and loss history saved!")    
+    elif dataset == 'rings':
+        print("Training `rings`...")
+        xy, labels = make_rings(1024, base_radius=3.0, noise=0.4, 
+                                n_rings=3, seed=seed)
+        model = train_rings(epochs=1001, width=width, depth=depth, 
+                            lr=0.005, batch_size=128, activation=activation, 
+                            folder=PATH, seed=seed, **kwargs)
+        print("...model and loss history saved")
+    else:
+        print(f"Dataset `{dataset}` is currently not available. Try one of the following:", 
+              *DATASETS)
+        exit()
+
+    if plot:
+        draw_model(xy, labels, model)
