@@ -14,6 +14,9 @@ class InvertibleMLP(nn.Module):
         'sigmoid': I_Sigmoid,
         'tanh': I_Tanh,
         'cubic': I_Cubic,
+        'cuberoot': I_CubicRoot,
+        'bilog': I_BiLog,
+        'slideq': I_SlideQ,
         'arctan': I_Arctan,
         'leaky_relu': I_LeakyReLU,
         'softplus': I_SoftPlus
