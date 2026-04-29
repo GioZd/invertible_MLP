@@ -27,6 +27,7 @@ def train(
     scheduler: Any, # torch.optim.lr_scheduler.LRScheduler | torch.optim.lr_scheduler.ReduceLROnPlateau,
     criterion: nn.Module | Callable = nn.CrossEntropyLoss(),
     device: torch.device = torch.device('cpu'),
+    dtype: torch.dtype = torch.float64
 ) -> tuple[InvertibleMLP, list[float], list[float]]:
     model.train()
     model.to(device)
@@ -35,7 +36,7 @@ def train(
     for epoch in range(max_epochs):
         total_loss = 0
         for i, (x, y) in enumerate(train_loader):
-            x, y = x.to(device), y.to(device).float()
+            x, y = x.to(device, dtype=dtype), y.to(device, dtype=dtype)
             optimizer.zero_grad()
             output = model(x)
             loss = criterion(output, y)
@@ -59,7 +60,8 @@ def train(
 def test(
     model: nn.Module,
     test_loader: DataLoader,
-    device: torch.device = torch.device('cpu')
+    device: torch.device = torch.device('cpu'),
+    dtype: torch.dtype = torch.float64
 ) -> float:
 
     model.eval()
@@ -69,7 +71,7 @@ def test(
     all_labels = []
 
     for x, y in test_loader:
-        x, y = x.to(device), y.to(device).float()
+        x, y = x.to(device, dtype=dtype), y.to(device, dtype=dtype)
         output = model(x)
         # predicted_labels = (output>0.5).float().cpu().numpy()
         predicted_labels = torch.argmax(output, dim=1)
@@ -97,7 +99,8 @@ def test(
 @torch.no_grad()
 def invertibility_check(model: InvertibleMLP, 
                         test_loader: DataLoader, 
-                        device: torch.device = torch.device('cpu')) -> None:
+                        device: torch.device = torch.device('cpu'),
+                        dtype: torch.dtype = torch.float64) -> None:
     model.eval()
     clamped_model = model.net[:-1]
     clamped_model.eval()
@@ -106,7 +109,7 @@ def invertibility_check(model: InvertibleMLP,
     max_error = torch.tensor(0.0)
     total = 0
     for i, (x, y) in enumerate(test_loader):
-        x, y = x.to(device), y.to(device).float()
+        x, y = x.to(device, dtype=dtype), y.to(device, dtype=dtype)
         output = clamped_model(x)
 
         # Uncomment the following lines for sanity checks on inversion steps
@@ -118,7 +121,7 @@ def invertibility_check(model: InvertibleMLP,
         #         print(f"depth = -{d}:")
         #         x_tmp = submod.inverse(x_tmp)
         #         print(x_tmp)
-        
+    
         x_tilde = model.inverse(output)
         mean_error += torch.sum((x-x_tilde)**2)
         max_error = max(max_error, torch.amax(torch.sum((x-x_tilde)**2, 1)))
@@ -132,7 +135,7 @@ def invertibility_check(model: InvertibleMLP,
 def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4, 
                  lr: float = 0.015625, batch_size: int = 128, 
                  activation='softplus', folder: str | None = None, 
-                 seed: int = 42, **kwargs):
+                 seed: int = 42, dtype: torch.dtype = torch.float64, **kwargs):
     """Train, validation and visualization on the spiral toy dataset.
     Set folder=PATH to save the trained model. Name is assigned automatically on the base
     of the hyperparameters.
@@ -144,9 +147,9 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
 
     xy, labels = make_spiral(1024, noise=0.2, turns=1.5, seed=seed)
     spiral = TensorDataset(xy, labels)
-    torch.manual_seed(seed)
     spiral_train, spiral_test = random_split(spiral, [0.8, 0.2], 
                                              torch.Generator().manual_seed(42))
+    torch.manual_seed(seed)
     train_loader = DataLoader(spiral_train, batch_size=batch_size, 
                               shuffle=True, num_workers=0)
     test_loader = DataLoader(spiral_test, batch_size=5, shuffle=False)
@@ -167,11 +170,12 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
         train_loader=train_loader, 
         optimizer=optimizer, 
         scheduler=scheduler,
-        criterion=nn.CrossEntropyLoss()
+        criterion=nn.CrossEntropyLoss(),
+        dtype=dtype
     )
     # mlp.inverse(torch.tensor([[0,0.5,0,0.5,0.1],[0.5,0.1,0.5,0,0.5]]))
-    test(mlp, test_loader)
-    invertibility_check(mlp, test_loader)
+    test(mlp, test_loader, dtype=dtype)
+    invertibility_check(mlp, test_loader, dtype=dtype)
 
     if folder:
         torch.save(mlp.state_dict(), model_path)
@@ -183,7 +187,7 @@ def train_spiral(epochs: int = 100, width: int = 3, depth: int = 4,
 def train_rings(epochs: int = 100, width: int = 3, depth: int = 4, 
                  lr: float = 0.015625, batch_size: int = 128, 
                  activation='softplus', folder: str | None = None, 
-                 seed: int = 42, **kwargs):
+                 seed: int = 42, dtype: torch.dtype = torch.float64, **kwargs):
     """Train, validation and visualization on the rings toy dataset.
     Set folder=PATH to save the trained model. Name is assigned automatically on the base
     of the hyperparameters.
@@ -195,14 +199,14 @@ def train_rings(epochs: int = 100, width: int = 3, depth: int = 4,
 
     xy, labels = make_rings(1024, base_radius=3.0, noise=0.4, n_rings=3, seed=seed)
     rings = TensorDataset(xy, labels)
-    torch.manual_seed(seed)
     rings_train, rings_test = random_split(rings, [0.8, 0.2], 
                                              torch.Generator().manual_seed(42))
+    torch.manual_seed(seed)
     train_loader = DataLoader(rings_train, batch_size=batch_size, 
                               shuffle=True, num_workers=0)
     test_loader = DataLoader(rings_test, batch_size=5, shuffle=False)
     mlp = InvertibleMLP(2, 2, hidden_width=width, hidden_depth=depth, 
-                        non_linearity=activation, **kwargs)
+                        non_linearity=activation, dtype=dtype, **kwargs)
 
     optimizer = torch.optim.Adam(mlp.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
@@ -218,11 +222,12 @@ def train_rings(epochs: int = 100, width: int = 3, depth: int = 4,
         train_loader=train_loader, 
         optimizer=optimizer, 
         scheduler=scheduler,
-        criterion=nn.CrossEntropyLoss()
+        criterion=nn.CrossEntropyLoss(),
+        dtype=dtype
     )
     # mlp.inverse(torch.tensor([[0,0.5,0,0.5,0.1],[0.5,0.1,0.5,0,0.5]]))
-    test(mlp, test_loader)
-    invertibility_check(mlp, test_loader)
+    test(mlp, test_loader, dtype=dtype)
+    invertibility_check(mlp, test_loader, dtype=dtype)
 
     if folder:
         torch.save(mlp.state_dict(), model_path)
@@ -233,7 +238,7 @@ def train_rings(epochs: int = 100, width: int = 3, depth: int = 4,
 
 @torch.no_grad()
 def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module, 
-               device: torch.device = torch.device('cpu')):
+               device: torch.device = torch.device('cpu'), dtype=torch.float64):
     import matplotlib.pyplot as plt
     model.eval()
     model.to(device)
@@ -242,7 +247,7 @@ def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module,
     res = 200 
     x_range = torch.linspace(-15, 15, res)
     y_range = torch.linspace(-15, 15, res)
-    grid_points = torch.cartesian_prod(x_range, y_range).to(device)
+    grid_points = torch.cartesian_prod(x_range, y_range).to(device, dtype=dtype)
     
     # 2. Get predictions
     predictions = model(grid_points).squeeze().cpu()
@@ -276,16 +281,18 @@ def draw_model(data: torch.Tensor, labels: torch.Tensor, model: nn.Module,
 
 if __name__ == '__main__':
     args = sys.argv[1:]
-    options = "D:w:d:a:s:"
+    options = "D:w:d:a:s:e:t:"
     long_options = ["dataset=", "width=", "depth=", 
                     "activation=", "kwargs=", "seed=",
-                    "no-plot"]
+                    "no-plot", "epochs=", "dtype="]
     # defaults
     dataset = 'spiral'
     width = 5
     depth = 4
     activation = 'bilog'
     kwargs = {}
+    epochs = 1001
+    dtype = torch.float64
     seed = 7
     plot = True
     try:
@@ -303,6 +310,13 @@ if __name__ == '__main__':
                 for kwval in currentVal.split(','):
                     kw, val = kwval.split('=')
                     kwargs[kw] = float(val)
+            elif currentArg in ("-e", "--epochs"):
+                epochs = int(currentVal)
+            elif currentArg in ("-t", "--dtype"):
+                if currentVal.lower() not in ('float', 'float32', 'float64', 'double'):
+                    raise getopt.GetoptError("dtype must be one between "
+                                             "'float', 'float32', 'float64', 'double'")
+                dtype = torch.float32 if currentVal.lower() in ('float', 'float32') else torch.float64
             elif currentArg in ("-s", "--seed"):
                 seed = int(currentVal)
             elif currentArg in ("--no-plot",):
@@ -314,17 +328,17 @@ if __name__ == '__main__':
     if dataset == 'spiral':
         print("Training `spiral`...")
         xy, labels = make_spiral(1024, noise=0.2, turns=1.5, seed=seed)
-        model = train_spiral(epochs=1001, width=width, depth=depth, lr=0.005, 
+        model = train_spiral(epochs=epochs, width=width, depth=depth, lr=0.005, 
                              batch_size=128, activation=activation, folder=PATH, 
-                             seed=seed, **kwargs)  
+                             seed=seed, dtype=dtype, **kwargs)  
         print("...model and loss history saved!")    
     elif dataset == 'rings':
         print("Training `rings`...")
         xy, labels = make_rings(1024, base_radius=3.0, noise=0.4, 
                                 n_rings=3, seed=seed)
-        model = train_rings(epochs=1001, width=width, depth=depth, 
+        model = train_rings(epochs=epochs, width=width, depth=depth, 
                             lr=0.005, batch_size=128, activation=activation, 
-                            folder=PATH, seed=seed, **kwargs)
+                            folder=PATH, seed=seed, dtype=dtype, **kwargs)
         print("...model and loss history saved")
     else:
         print(f"Dataset `{dataset}` is currently not available. Try one of the following:", 
@@ -332,4 +346,4 @@ if __name__ == '__main__':
         exit()
 
     if plot:
-        draw_model(xy, labels, model)
+        draw_model(xy, labels, model, dtype=dtype)

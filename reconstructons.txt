@@ -1,0 +1,1 @@
+dtype,width,depth,mean_err,max_err

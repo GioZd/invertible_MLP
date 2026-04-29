@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 
 class LinearBlock(nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features: int, out_features: int, dtype: torch.dtype = torch.float64):
         super().__init__()
-        self.block = nn.Linear(in_features, out_features)
+        self.block = nn.Linear(in_features, out_features, dtype=dtype)
 
     def forward(self, x: torch.Tensor):
-        return self.block(x) 
+        return self.block(x)
     
     @torch.no_grad()
     def inverse(self, y: torch.Tensor) -> torch.Tensor:

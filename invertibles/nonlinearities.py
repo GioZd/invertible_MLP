@@ -153,16 +153,15 @@ class I_LeakyReLU(nn.Module):
 
     @torch.no_grad()
     def inverse(self, y: torch.Tensor) -> torch.Tensor:
-        clone_input = y
-        if not self.inplace:
-            clone_input = y.clone()
-        mask = clone_input < 0
-        clone_input[mask] = clone_input[mask] / self.negative_slope
+        clone_input = y.clone() if not self.inplace else y
+        # mask = clone_input < 0
+        # clone_input[mask] = clone_input[mask] / self.negative_slope
+        clone_input = torch.amin(torch.stack([clone_input, clone_input/self.negative_slope]), dim=0)
         return clone_input
 
 
 if __name__ == '__main__':
-    x = torch.tensor([[-1.0, 1.0],[-2.5, 0.0]])
+    x = torch.tensor([[-1.0, 1.0],[-2.5, 0.0]], dtype=torch.double)
     cubic = I_Cubic(slope=0.2)
     cuberoot = I_CubicRoot()
     bilog = I_BiLog()

@@ -29,7 +29,7 @@ class InvertibleMLP(nn.Module):
         hidden_width: int = 3,
         hidden_depth: int = 4,
         non_linearity: str | type[nn.Module] = 'sigmoid',
-        dtype: torch.dtype = torch.float,
+        dtype: torch.dtype = torch.float64,
         **kwargs
     ) -> None:
         """
@@ -52,6 +52,7 @@ class InvertibleMLP(nn.Module):
         if hidden_width < input_dim:
             raise ValueError("Hidden dimension is not meant to be smaller than input dimension.")
         super().__init__()
+        self.dtype = dtype
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hidden_width = hidden_width
@@ -78,13 +79,13 @@ class InvertibleMLP(nn.Module):
         
     
         layers: list[tuple[str, nn.Module]] = [
-            ('l1', LinearBlock(self.input_dim, self.hidden_width)),
+            ('l1', LinearBlock(self.input_dim, self.hidden_width, dtype=self.dtype)),
             ('h1', activation(**kwargs))
         ]
         for depth in range(2, self.hidden_depth+1):
-            layers.append((f"l{depth}", LinearBlock(self.hidden_width, self.hidden_width)))
+            layers.append((f"l{depth}", LinearBlock(self.hidden_width, self.hidden_width, dtype=self.dtype)))
             layers.append((f"h{depth}", activation(**kwargs)))
-        layers.append(('out', LinearBlock(self.hidden_width, self.output_dim)))
+        layers.append(('out', LinearBlock(self.hidden_width, self.output_dim, dtype=self.dtype)))
         # layers.append(('phat', nn.Sigmoid()))
         return nn.Sequential(OrderedDict(layers))
     
